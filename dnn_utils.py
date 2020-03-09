@@ -1,4 +1,53 @@
 import numpy as np
+import math
+import gzip
+
+def load_train_data(img_size):
+
+    train_images = gzip.open('./dataset/train-images-idx3-ubyte.gz', 'r')
+    train_labels = gzip.open('./dataset/train-labels-idx1-ubyte.gz', 'r')
+
+    train_images.read(16)
+    train_labels.read(8)
+
+    ti_buf = train_images.read(img_size * img_size * 60000)
+    tl_buf = train_labels.read(60000)
+
+    X_train = np.frombuffer(ti_buf, dtype=np.uint8)
+    Ytr = np.frombuffer(tl_buf, dtype=np.uint8)
+
+    X_train = X_train.reshape(60000, img_size * img_size)
+    Ytr = Ytr.reshape(X_train.shape[0], 1)
+    Y_train = np.zeros((X_train.shape[0], 10))
+
+    for i in range(X_train.shape[0]):
+        Y_train[i][Ytr[i][0]-1] = 1
+
+    return X_train, Y_train, Ytr
+
+def load_test_data(img_size):
+
+    test_images = gzip.open('./dataset/t10k-images-idx3-ubyte.gz', 'r')
+    test_labels = gzip.open('./dataset/t10k-labels-idx1-ubyte.gz', 'r')
+
+    test_images.read(16)
+    test_labels.read(8)
+
+    tei_buf = test_images.read(img_size * img_size * 10000)
+    tel_buf = test_labels.read(10000)
+
+    X_test = np.frombuffer(tei_buf, dtype=np.uint8)
+    Yte = np.frombuffer(tel_buf, dtype=np.uint8)
+
+    X_test = X_test.reshape(10000, img_size * img_size)
+    Yte = Yte.reshape(X_test.shape[0], 1)
+    Y_test = np.zeros((X_test.shape[0], 10))
+
+    for i in range(X_test.shape[0]):
+        Y_test[i][Yte[i][0]-1] = 1
+
+    return X_test, Y_test, Yte
+
 
 def softmax(Z):
     e_x = np.exp(Z - np.max(Z))
@@ -29,7 +78,6 @@ def relu_backward(dA, cache):
 
 def initialize_parameters(layer_dims):
 
-    np.random.seed(1)
     parameters = {}
     L = len(layer_dims)            # number of layers in the network
 
@@ -42,6 +90,79 @@ def initialize_parameters(layer_dims):
 
         
     return parameters
+
+def random_mini_batches(X, Y, mini_batch_size = 64):
+
+    m = X.shape[1]
+    mini_batches = []
+        
+    # Step 1: Shuffle (X, Y)
+    permutation = list(np.random.permutation(m))
+    shuffled_X = X[:, permutation]
+    shuffled_Y = Y[:, permutation].reshape(10,m)
+
+    # Step 2: Partition. Minus the end case.
+    num_complete_minibatches = math.floor(m/mini_batch_size)
+    for k in range(0, num_complete_minibatches):
+        mini_batch_X = shuffled_X[:, k * mini_batch_size : (k + 1) * mini_batch_size]
+        mini_batch_Y = shuffled_Y[:, k * mini_batch_size : (k + 1) * mini_batch_size]
+        
+        mini_batch = (mini_batch_X, mini_batch_Y)
+        mini_batches.append(mini_batch)
+    
+    # Handling the end case (last mini-batch < mini_batch_size)
+    if m % mini_batch_size != 0:
+        mini_batch_X = shuffled_X[:, num_complete_minibatches * mini_batch_size :]
+        mini_batch_Y = shuffled_Y[:, num_complete_minibatches * mini_batch_size :]
+        
+        mini_batch = (mini_batch_X, mini_batch_Y)
+        mini_batches.append(mini_batch)
+    
+    return mini_batches
+
+def initialize_adam(parameters) :
+    
+    L = len(parameters) // 2 
+    v = {}
+    s = {}
+    
+    for l in range(L):
+        v["dW" + str(l+1)] = np.zeros(parameters['W' + str(l+1)].shape)
+        v["db" + str(l+1)] = np.zeros(parameters['b' + str(l+1)].shape)
+        s["dW" + str(l+1)] = np.zeros(parameters['W' + str(l+1)].shape)
+        s["db" + str(l+1)] = np.zeros(parameters['b' + str(l+1)].shape)
+    
+    return v, s
+
+def update_parameters_with_adam(parameters, grads, v, s, t, learning_rate = 0.01,
+                                beta1 = 0.9, beta2 = 0.999,  epsilon = 1e-8):
+
+    L = len(parameters) // 2
+    v_corrected = {}
+    s_corrected = {}
+
+    for l in range(L):
+        # Moving average of the gradients.
+        v["dW" + str(l+1)] = beta1 * v["dW" + str(l+1)] + (1 - beta1) * grads["dW" + str(l+1)]
+        v["db" + str(l+1)] = beta1 * v["db" + str(l+1)] + (1 - beta1) * grads["db" + str(l+1)]
+
+        # Compute bias-corrected first moment estimate.
+        v_corrected["dW" + str(l+1)] = v["dW" + str(l+1)] / (1 - np.power(beta1, t))
+        v_corrected["db" + str(l+1)] = v["db" + str(l+1)] / (1 - np.power(beta1, t))
+
+        # Moving average of the squared gradients.
+        s["dW" + str(l+1)] = beta2 * s["dW" + str(l+1)] + (1 - beta2) * np.square(grads["dW" + str(l+1)])
+        s["db" + str(l+1)] = beta2 * s["db" + str(l+1)] + (1 - beta2) * np.square(grads["db" + str(l+1)])
+
+        # Compute bias-corrected second raw moment estimate.
+        s_corrected["dW" + str(l+1)] = s["dW" + str(l+1)] / (1 - np.power(beta2, t))
+        s_corrected["db" + str(l+1)] = s["db" + str(l+1)] / (1 - np.power(beta2, t))
+
+        # Update parameters.
+        parameters["W" + str(l+1)] = parameters["W" + str(l+1)] - learning_rate * (v_corrected["dW" + str(l+1)] / (np.sqrt(s_corrected["dW" + str(l+1)]) + epsilon))
+        parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * (v_corrected["db" + str(l+1)] / (np.sqrt(s_corrected["db" + str(l+1)]) + epsilon))
+
+    return parameters, v, s
 
 def linear_forward(A, W, b):
 
@@ -78,14 +199,14 @@ def L_model_forward(X, parameters):
     # Implement [LINEAR -> RELU]*(L-1). Add "cache" to the "caches" list.
     for l in range(1, L):
         A_prev = A 
-        A, cache = linear_activation_forward(A_prev, parameters['W' + str(l)], parameters['b' + str(l)], activation = "relu")
+        A, cache = linear_activation_forward(A_prev, parameters["W" + str(l)], parameters["b" + str(l)], activation = "relu")
         caches.append(cache)
     
     # Implement LINEAR -> SOFTMAX. Add "cache" to the "caches" list.
-    AL, cache = linear_activation_forward(A, parameters['W' + str(L)], parameters['b' + str(L)], activation = "softmax")
+    AL, cache = linear_activation_forward(A, parameters["W" + str(L)], parameters["b" + str(L)], activation = "softmax")
     caches.append(cache)
     
-    assert(AL.shape == (10,X.shape[1]))
+    assert(AL.shape == (10, X.shape[1]))
             
     return AL, caches
 
@@ -146,17 +267,6 @@ def L_model_backward(AL, Y, caches):
         grads["db" + str(l + 1)] = db_temp
 
     return grads
-
-def update_parameters(parameters, grads, learning_rate):
-
-    L = len(parameters) // 2 # number of layers in the neural network
-
-    # Update rule for each parameter. Use a for loop.
-    for l in range(L):
-        parameters["W" + str(l+1)] = parameters["W" + str(l+1)] - learning_rate * grads["dW" + str(l+1)]
-        parameters["b" + str(l+1)] = parameters["b" + str(l+1)] - learning_rate * grads["db" + str(l+1)]
-        
-    return parameters
 
 def predict(X, parameters):
 
