@@ -210,24 +210,32 @@ def L_model_forward(X, parameters):
             
     return AL, caches
 
-def compute_cost(AL, Y):
+def compute_cost(AL, Y, caches, lambd):
 
     m = Y.shape[1]
 
     # Compute loss from aL and y.
     cost = -1/m * np.sum(Y * np.log(AL))
+
+	# For L2 regularisation
+    L2_regularization_cost = 0
+
+    for W in caches:
+    	L2_regularization_cost += np.sum(np.square((W[0])[1]))
+
+    cost += lambd * 1 / (2*m) * L2_regularization_cost
     
     cost = np.squeeze(cost)      # To make sure your cost's shape is what we expect (e.g. this turns [[17]] into 17).
     assert(cost.shape == ())
     
     return cost
 
-def linear_backward(dZ, cache):
+def linear_backward(dZ, cache, lambd):
 
     A_prev, W, b = cache
     m = A_prev.shape[1]
 
-    dW = 1./m * np.dot(dZ,A_prev.T)
+    dW = 1./m * np.dot(dZ,A_prev.T) + lambd / m * W
     db = 1./m * np.sum(dZ, axis = 1, keepdims = True)
     dA_prev = np.dot(W.T,dZ)
     
@@ -237,16 +245,16 @@ def linear_backward(dZ, cache):
     
     return dA_prev, dW, db
 
-def linear_activation_backward(dA, cache):
+def linear_activation_backward(dA, cache, lambd):
 
     linear_cache, activation_cache = cache
     
     dZ = relu_backward(dA, activation_cache)
-    dA_prev, dW, db = linear_backward(dZ, linear_cache)
+    dA_prev, dW, db = linear_backward(dZ, linear_cache, lambd)
     
     return dA_prev, dW, db
 
-def L_model_backward(AL, Y, caches):
+def L_model_backward(AL, Y, caches, lambd):
 
     grads = {}
     L = len(caches) # the number of layers
@@ -256,12 +264,12 @@ def L_model_backward(AL, Y, caches):
     # Lth layer (SOFTMAX -> LINEAR) gradients. Inputs: "AL, Y, caches". Outputs: "grads["dAL"], grads["dWL"], grads["dbL"]
     current_cache = caches[L-1]
     dZL = AL - Y
-    grads["dA" + str(L-1)], grads["dW" + str(L)], grads["db" + str(L)] = linear_backward(dZL, current_cache[0])
+    grads["dA" + str(L-1)], grads["dW" + str(L)], grads["db" + str(L)] = linear_backward(dZL, current_cache[0], lambd)
 
     for l in reversed(range(L-1)):
         # lth layer: (RELU -> LINEAR) gradients.
         current_cache = caches[l]
-        dA_prev_temp, dW_temp, db_temp = linear_activation_backward(grads["dA" + str(l + 1)], current_cache)
+        dA_prev_temp, dW_temp, db_temp = linear_activation_backward(grads["dA" + str(l + 1)], current_cache, lambd)
         grads["dA" + str(l)] = dA_prev_temp
         grads["dW" + str(l + 1)] = dW_temp
         grads["db" + str(l + 1)] = db_temp
